@@ -1,0 +1,17 @@
+{
+  "table2_word_accuracy_percent": {
+    "IIIT5K": {"50": 97.6, "1k": 94.4, "none": 78.2},
+    "SVT": {"50": 96.4, "none": 80.8},
+    "IC03": {"50": 98.7, "full": 97.6, "50k": 95.5, "none": 89.4},
+    "IC13": {"none": 86.7}
+  },
+  "table3": {
+    "parameters": 8300000,
+    "fp32_size_mb": 33
+  },
+  "figure4_ic03_50k": {
+    "delta": [0, 1, 2, 3, 4, 5],
+    "word_accuracy_percent": [89.4, 93.7, 95.4, 95.5, 95.7, 95.9],
+    "search_time_ms": [1, 12, 90, 370, 1220, 2420]
+  }
+}
