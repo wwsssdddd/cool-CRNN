@@ -12,6 +12,21 @@
 Ильнур пытался установить miniconda на сервер, и устновить датасеты.
 Аня подключила GPU(В итоге нам дали сломанные)
 Рита проводила литобзор
+Андрей читал предыдущие статьи(
+      J. Almaz´ an, A. Gordo, A. Forn´ es, and E. Valveny. Word
+    spotting and recognition with embedded attributes. PAMI,
+    36(12):2552–2566, 2014.
+      O. Alsharif and J. Pineau. End-to-end text recognition with
+    hybrid HMM maxout models. ICLR, 2014.
+      Y. Bengio, P. Y. Simard, and P. Frasconi. Learning long-
+    term dependencies with gradient descent is difficult. NN,
+    5(2):157–166, 1994.
+      A. Bissacco, M. Cummins, Y. Netzer, and H. Neven. Pho-
+    toocr: Reading text in uncontrolled conditions. In ICCV,
+    2013.
+      W. A. Burkhard and R. M. Keller. Some approaches to best-
+    match file searching. Commun. ACM, 16(4):230–236, 1973.
+)
 
 7 октября
 Мидревью прошло по плану
@@ -23,3 +38,4 @@
 Запустили на своих компах
 Поняли что недокачали самый значимый датасет(Synth)
 На слишком маленькой выборке ловим переобучение уже на 30 поколении(Res1)
+
