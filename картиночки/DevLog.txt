@@ -11,7 +11,19 @@
 Паша разобрал строение CTC(Pipeline)
 Ильнур пытался установить miniconda на сервер, и устновить датасеты.
 Аня подключила GPU(В итоге нам дали сломанные)
-Рита проводила литобзор
+Рита проводила литобзор, разбиралась в статьях после 2015(
+      B. Shi, X. Wang, P. Lyu, C. Yao, and X. Bai. Robust scene 
+      text recognition with automatic rectification. In CVPR, 2016.
+      B. Shi, M. Yang, X. Wang, P. Lyu, C. Yao, and X. Bai. ASTER: 
+      An attentional scene text recognizer with flexible rectification. 
+      PAMI, 41(9):2035–2048, 2019.
+      S. Fang, H. Xie, Y. Wang, Z. Mao, and Y. Zhang. Read like
+      humans: Autonomous, bidirectional and iterative language 
+      modeling for scene text recognition. In CVPR, 2021.
+      Y. Du, Z. Chen, C. Jia, X. Yin, T. Zheng, C. Li, Y. Du, and 
+      Y.-G. Jiang. SVTR: Scene text recognition with a single visual model. 
+      In IJCAI, 2022.
+)
 Андрей читал предыдущие статьи(
       J. Almaz´ an, A. Gordo, A. Forn´ es, and E. Valveny. Word
     spotting and recognition with embedded attributes. PAMI,
