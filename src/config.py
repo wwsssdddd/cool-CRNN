@@ -12,17 +12,20 @@ import torch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------- Данные ----------
-# Папка с картинками капч. Имя файла = правильный ответ, например "2b827.png".
+# Папка с картинками. Имя файла = правильный ответ, например "2b827.png".
 DATA_PATH = os.environ.get("CRNN_DATA_PATH", str(PROJECT_ROOT / "data"))
+
 # Необязательный TSV: относительный_путь<TAB>текст. Нужен, когда ответ нельзя
-# получить из имени файла (например, для MJSynth/ICDAR).
+# получить из имени файла.
 MANIFEST_PATH = os.environ.get("CRNN_MANIFEST")
 TRAIN_MANIFEST_PATH = os.environ.get("CRNN_TRAIN_MANIFEST")
 VAL_MANIFEST_PATH = os.environ.get("CRNN_VAL_MANIFEST")
+
 # Папка, куда сохраняется лучшая модель.
 MODELS_PATH = os.environ.get("CRNN_MODELS_PATH", str(PROJECT_ROOT / "models"))
-TEST_SIZE = float(os.environ.get("CRNN_TEST_SIZE", "0.2"))
-RANDOM_STATE = int(os.environ.get("CRNN_RANDOM_STATE", "42"))
+
+TEST_SIZE = float(os.environ.get("CRNN_TEST_SIZE", "0.2")) # доля датасета, которая пойдёт в тестовую (валидационную) часть
+RANDOM_STATE = int(os.environ.get("CRNN_RANDOM_STATE", "42")) # для деления train / test
 
 # ---------- Алфавит ----------
 CHARS = string.digits + string.ascii_lowercase
@@ -52,11 +55,9 @@ def _best_available_device() -> str:
 
 # ---------- Обучение ----------
 DEVICE = _best_available_device()
-SEED = int(os.environ.get("CRNN_SEED", "0"))
-# Безопасный default — smoke-run. В статье число эпох не фиксировано:
-# обучение продолжалось до сходимости примерно 50 часов.
+SEED = int(os.environ.get("CRNN_SEED", "0")) # для всех случайных действий кроме деления train / test
 EPOCHS = int(os.environ.get("CRNN_EPOCHS", "1"))
-BATCH_SIZE = int(os.environ.get("CRNN_BATCH_SIZE", "64"))
-LR = float(os.environ.get("CRNN_LR", "1.0"))
-NUM_WORKERS = int(os.environ.get("CRNN_NUM_WORKERS", "0"))
-RESUME_PATH = os.environ.get("CRNN_RESUME")
+BATCH_SIZE = int(os.environ.get("CRNN_BATCH_SIZE", "64")) # в одной эпохе все данные делятся на батчи, по которым идет итерация
+LR = float(os.environ.get("CRNN_LR", "1.0")) # Learning rate
+NUM_WORKERS = int(os.environ.get("CRNN_NUM_WORKERS", "0")) # для мультипоточности, сколько потоков
+RESUME_PATH = os.environ.get("CRNN_RESUME") # Чекпоинт, с него можно продолить если надо
