@@ -13,13 +13,21 @@ from .config import (
     BATCH_SIZE,
     BLANK_IDX,
     DEVICE,
-    EPOCHS,
+    DISPLAY_INTERVAL,
+    GRAD_CLIP_NORM,
     LR,
+    MAX_ITERATIONS,
     MODELS_PATH,
+    ORIGINAL_COMMIT,
+    ORIGINAL_REPOSITORY,
     RESUME_PATH,
     SEED,
+    SNAPSHOT_INTERVAL,
     TRAIN_MANIFEST_PATH,
     TRAIN_IMAGE_WIDTH,
+    VALIDATION_INTERVAL,
+    VALIDATION_SAMPLES,
+    VAL_BATCH_SIZE,
     VAL_MANIFEST_PATH,
 )
 from .dataset import CaptchaDataset
@@ -31,26 +39,26 @@ def plot_history(history: dict[str, list]) -> None:
     """Рисует и сохраняет кривые CTC-loss и CER."""
     output_dir = Path(MODELS_PATH)
     output_dir.mkdir(parents=True, exist_ok=True)
-    epochs = range(1, len(history["train_loss"]) + 1)
+    iterations = history.get("iteration", list(range(1, len(history["train_loss"]) + 1)))
+    train_loss = [float("nan") if value is None else value for value in history["train_loss"]]
 
     figure = plt.figure(figsize=(12, 5))
     axis_loss = figure.add_subplot(121)
-    axis_loss.plot(epochs, history["train_loss"], label="train")
-    axis_loss.plot(epochs, history["test_loss"], label="test")
-    axis_loss.set(title="CTC Loss", xlabel="epoch", ylabel="loss")
+    axis_loss.plot(iterations, train_loss, label="train")
+    axis_loss.plot(iterations, history["test_loss"], label="validation")
+    axis_loss.set(title="CTC Loss", xlabel="iteration", ylabel="loss")
     axis_loss.grid(alpha=0.25)
     axis_loss.legend()
 
     axis_cer = figure.add_subplot(122)
-    axis_cer.plot(epochs, history["train_cer"], label="train")
-    axis_cer.plot(epochs, history["test_cer"], label="test")
-    axis_cer.set(title="Character Error Rate", xlabel="epoch", ylabel="CER")
+    axis_cer.plot(iterations, history["test_cer"], label="validation")
+    axis_cer.set(title="Character Error Rate", xlabel="iteration", ylabel="CER")
     axis_cer.grid(alpha=0.25)
     axis_cer.legend()
 
     figure.tight_layout()
     figure.savefig(output_dir / "training_history.png", dpi=160, bbox_inches="tight")
-    plt.show()
+    plt.close(figure)
 
 
 def save_model(model: nn.Module, path: str | Path) -> None:
@@ -73,25 +81,38 @@ def training_pipeline() -> None:
             split=False,
             fixed_width=TRAIN_IMAGE_WIDTH,
         )
-        test_dataset = CaptchaDataset(manifest_path=VAL_MANIFEST_PATH, split=False)
+        # Оригинальный DatasetLmdb масштабирует и train, и validation в 100x32.
+        test_dataset = CaptchaDataset(
+            manifest_path=VAL_MANIFEST_PATH,
+            split=False,
+            fixed_width=TRAIN_IMAGE_WIDTH,
+        )
     else:
         train_dataset = CaptchaDataset(fixed_width=TRAIN_IMAGE_WIDTH)
-        test_dataset = CaptchaDataset()
+        test_dataset = CaptchaDataset(fixed_width=TRAIN_IMAGE_WIDTH)
         test_dataset.set_state("test")
 
     output_dir = Path(MODELS_PATH)
     output_dir.mkdir(parents=True, exist_ok=True)
     run_config = {
         "device": DEVICE,
-        "epochs": EPOCHS,
+        "max_iterations": MAX_ITERATIONS,
+        "display_interval": DISPLAY_INTERVAL,
+        "validation_interval": VALIDATION_INTERVAL,
+        "validation_samples": VALIDATION_SAMPLES,
+        "snapshot_interval": SNAPSHOT_INTERVAL,
         "batch_size": BATCH_SIZE,
+        "validation_batch_size": VAL_BATCH_SIZE,
         "learning_rate": LR,
+        "gradient_clip_norm": GRAD_CLIP_NORM,
         "seed": SEED,
+        "original_repository": ORIGINAL_REPOSITORY,
+        "original_commit": ORIGINAL_COMMIT,
         "train_manifest": TRAIN_MANIFEST_PATH,
         "validation_manifest": VAL_MANIFEST_PATH,
         "train_image_width": TRAIN_IMAGE_WIDTH,
         "train_samples": len(train_dataset),
-        "validation_samples": len(test_dataset),
+        "validation_dataset_samples": len(test_dataset),
     }
     (output_dir / "run_config.json").write_text(
         json.dumps(run_config, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -99,7 +120,7 @@ def training_pipeline() -> None:
 
     print(
         f"device={DEVICE} | train={len(train_dataset)} | test={len(test_dataset)} | "
-        f"epochs={EPOCHS} | batch_size={BATCH_SIZE}"
+        f"max_iterations={MAX_ITERATIONS} | batch_size={BATCH_SIZE}"
     )
     model = RCNN().to(DEVICE)
     optimizer = torch.optim.Adadelta(model.parameters(), lr=LR, rho=0.9, eps=1e-6)
@@ -110,10 +131,16 @@ def training_pipeline() -> None:
         model,
         optimizer,
         criterion,
-        epochs=EPOCHS,
         batch_size=BATCH_SIZE,
+        max_iterations=MAX_ITERATIONS,
+        display_interval=DISPLAY_INTERVAL,
+        validation_interval=VALIDATION_INTERVAL,
+        validation_samples=VALIDATION_SAMPLES,
+        val_batch_size=VAL_BATCH_SIZE,
+        snapshot_interval=SNAPSHOT_INTERVAL,
         checkpoint_dir=MODELS_PATH,
         resume_path=RESUME_PATH,
+        grad_clip_norm=GRAD_CLIP_NORM,
     )
     model_path = Path(MODELS_PATH) / "model"
     save_model(best_model, model_path)

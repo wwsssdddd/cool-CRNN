@@ -14,7 +14,7 @@ import torch
 from .bktree import BKTree
 from .config import BLANK_IDX, CHARS
 from .ctc_probability import text_log_probability
-from .dataset import CHAR_2_LABEL, convert_label_to_string
+from .dataset import CHAR_2_LABEL, LABEL_2_CHAR, convert_label_to_string
 
 
 def load_lexicon(path: str | Path) -> list[str]:
@@ -62,7 +62,10 @@ def greedy_decode_log_probs(
             if label != previous and label != blank:
                 result.append(label)
             previous = label
-        return "".join(CHARS[label] for label in result)
+        try:
+            return "".join(LABEL_2_CHAR[label] for label in result)
+        except KeyError as error:
+            raise ValueError(f"Неизвестный индекс класса: {error.args[0]}") from error
     return convert_label_to_string(labels, is_prediction=True)
 
 

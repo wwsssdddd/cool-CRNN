@@ -3,11 +3,56 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from src.config import BLANK_IDX, NUM_CLASSES
+from src.config import BLANK_IDX, DEVICE, NUM_CLASSES
 from src.dataset import CHAR_2_LABEL, convert_label_to_string, ctc_collate_fn
 from src.metrics import char_error_rate, levenshtein_distance, word_accuracy
 from src.model import RCNN
-from src.train import compute_ctc_loss, decode_predictions
+from src.train import compute_ctc_loss, decode_predictions, normalize_batch_loss, train
+
+
+def test_original_class_indices() -> None:
+    assert BLANK_IDX == 0
+    assert CHAR_2_LABEL["0"] == 1
+    assert CHAR_2_LABEL["9"] == 10
+    assert CHAR_2_LABEL["a"] == 11
+    assert CHAR_2_LABEL["z"] == 36
+
+
+def test_original_batch_norm_positions_and_bidirectional_join() -> None:
+    model = RCNN()
+    convolution_number = 0
+    batch_norm_after: list[int] = []
+    for module in model.conv_layer:
+        if isinstance(module, nn.Conv2d):
+            convolution_number += 1
+        elif isinstance(module, nn.BatchNorm2d):
+            batch_norm_after.append(convolution_number)
+    assert convolution_number == 7
+    assert batch_norm_after == [3, 5, 7]
+    assert hasattr(model.rnn_layer_1, "forward_projection")
+    assert hasattr(model.rnn_layer_1, "backward_projection")
+
+
+def test_original_recurrent_initialization() -> None:
+    model = RCNN()
+    for layer in (model.rnn_layer_1, model.rnn_layer_2):
+        for name, parameter in layer.rnn.named_parameters():
+            if "weight" in name:
+                assert float(parameter.detach().min()) >= -0.080001
+                assert float(parameter.detach().max()) <= 0.080001
+            else:
+                assert torch.count_nonzero(parameter) == 0
+        assert torch.count_nonzero(layer.forward_projection.bias) == 0
+        assert torch.count_nonzero(layer.backward_projection.bias) == 0
+
+
+def test_sum_ctc_loss_is_normalized_by_actual_batch_size() -> None:
+    parameter = torch.tensor(2.0, requires_grad=True)
+    summed_loss = parameter * 64
+    normalized = normalize_batch_loss(summed_loss, batch_size=64)
+    normalized.backward()
+    assert float(normalized.detach()) == 2.0
+    assert float(parameter.grad) == 1.0
 
 
 def test_model_output_shape_and_gradients() -> None:
@@ -82,6 +127,36 @@ def test_variable_length_batch_runs_end_to_end() -> None:
     )
     assert torch.isfinite(loss)
     loss.backward()
+
+
+def test_original_iteration_training_loop_smoke() -> None:
+    words = ["cat", "book", "hello", "word7"]
+    dataset = [
+        (
+            torch.rand(1, 32, 100) * 2 - 1,
+            torch.tensor([CHAR_2_LABEL[char] for char in word]),
+        )
+        for word in words
+    ]
+    model = RCNN().to(DEVICE)
+    optimizer = torch.optim.Adadelta(model.parameters(), lr=1.0, rho=0.9, eps=1e-6)
+    criterion = nn.CTCLoss(blank=BLANK_IDX, reduction="sum", zero_infinity=True)
+    history, _ = train(
+        dataset,
+        dataset,
+        model,
+        optimizer,
+        criterion,
+        batch_size=2,
+        max_iterations=2,
+        display_interval=1,
+        validation_interval=1,
+        validation_samples=2,
+        val_batch_size=2,
+        snapshot_interval=2,
+    )
+    assert history["iteration"] == [0, 1, 2]
+    assert all(torch.isfinite(torch.tensor(history["test_loss"])))
 
 
 def test_metrics() -> None:

@@ -4,6 +4,10 @@ __pycache__/
 *.py[cod]
 .DS_Store
 !data/.gitkeep
+# MJSynth contains millions of generated images and must stay outside Git.
+data/mjsynth/
+# Generated manifests are rebuilt locally from the mounted datasets.
+data/manifests/
 models/*
 !models/.gitkeep
 results/
