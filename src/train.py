@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import gzip
 import json
 import random
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +17,7 @@ from tqdm.auto import tqdm
 
 from .config import DEVICE, NUM_WORKERS, ORIGINAL_COMMIT
 from .dataset import CTCBatch, convert_label_to_string, ctc_collate_fn
-from .metrics import char_error_rate, word_accuracy
+from .metrics import char_error_rate, levenshtein_distance, word_accuracy
 
 
 def seed_everything(seed: int) -> None:
@@ -189,9 +191,81 @@ def eval_epoch(
 
 
 def _print_examples(predictions: list[str], targets: list[str], count: int = 3) -> None:
-    pairs = list(zip(predictions, targets))[:count]
-    if pairs:
-        print("  examples:", ", ".join(f"{prediction!r}/{target!r}" for prediction, target in pairs))
+    pairs = list(zip(predictions, targets))
+    correct = [(prediction, target) for prediction, target in pairs if prediction == target][:count]
+    incorrect = [(prediction, target) for prediction, target in pairs if prediction != target][:count]
+    if correct:
+        print(
+            "  correct examples:",
+            ", ".join(f"{prediction!r}/{target!r}" for prediction, target in correct),
+        )
+    if incorrect:
+        print(
+            "  error examples:",
+            ", ".join(f"{prediction!r}/{target!r}" for prediction, target in incorrect),
+        )
+
+
+def save_validation_predictions(
+    output_dir: str | Path,
+    iteration: int,
+    predictions: list[str],
+    targets: list[str],
+    sample_paths: list[str | None],
+    *,
+    validation_loss: float,
+    validation_cer: float,
+    validation_word_accuracy: float,
+) -> Path:
+    """Атомарно сохраняет все ответы одной валидации в сжатый JSONL."""
+    if not (len(predictions) == len(targets) == len(sample_paths)):
+        raise ValueError("predictions, targets и sample_paths должны иметь одинаковую длину")
+
+    log_dir = Path(output_dir) / "validation_predictions"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    destination = log_dir / f"iteration_{iteration:07d}.jsonl.gz"
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    summary = {
+        "record_type": "summary",
+        "iteration": iteration,
+        "sample_count": len(predictions),
+        "validation_loss": validation_loss,
+        "validation_cer": validation_cer,
+        "validation_word_accuracy": validation_word_accuracy,
+    }
+
+    try:
+        with gzip.open(temporary, "wt", encoding="utf-8") as stream:
+            stream.write(json.dumps(summary, ensure_ascii=False) + "\n")
+            for index, (prediction, target, sample_path) in enumerate(
+                zip(predictions, targets, sample_paths)
+            ):
+                distance = levenshtein_distance(prediction, target)
+                record = {
+                    "record_type": "sample",
+                    "iteration": iteration,
+                    "index": index,
+                    "image": sample_path,
+                    "target": target,
+                    "prediction": prediction,
+                    "correct": prediction == target,
+                    "edit_distance": distance,
+                    "sample_cer": distance / max(1, len(target)),
+                }
+                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+        temporary.replace(destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return destination
+
+
+def _validation_sample_paths(dataset: Dataset, count: int) -> list[str | None]:
+    """Возвращает пути первых validation-объектов, если Dataset их предоставляет."""
+    paths = getattr(dataset, "paths", None)
+    if paths is None or len(paths) < count:
+        return [None] * count
+    return [str(paths[index]) for index in range(count)]
 
 
 def _load_checkpoint(path: str | Path) -> dict:
@@ -313,6 +387,7 @@ def train(
     if validation_count < 1:
         raise ValueError("Валидационный Dataset пуст")
     validation_dataset = Subset(test_dataset, range(validation_count))
+    validation_paths = _validation_sample_paths(test_dataset, validation_count)
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=val_batch_size,
@@ -345,6 +420,25 @@ def train(
             best_word_acc = val_word_acc
 
         if output_dir is not None:
+            try:
+                prediction_log = save_validation_predictions(
+                    output_dir,
+                    iteration,
+                    predictions,
+                    targets,
+                    validation_paths,
+                    validation_loss=val_loss,
+                    validation_cer=val_cer,
+                    validation_word_accuracy=val_word_acc,
+                )
+            except OSError as error:
+                warnings.warn(
+                    f"Не удалось сохранить validation-предсказания: {error}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                prediction_log = None
+
             checkpoint_state = {
                 "format_version": 2,
                 "original_commit": ORIGINAL_COMMIT,
@@ -371,6 +465,8 @@ def train(
             f"val CER {val_cer:.4f} | val word acc {val_word_acc:.4f} | "
             f"lr {learning_rate:g}"
         )
+        if output_dir is not None and prediction_log is not None:
+            print(f"  validation answers: {prediction_log}")
         _print_examples(predictions, targets)
 
     if start_iteration >= max_iterations:

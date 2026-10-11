@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import gzip
+import json
+from pathlib import Path
+
 import torch
 from torch import nn
 
@@ -7,7 +11,13 @@ from src.config import BLANK_IDX, DEVICE, NUM_CLASSES
 from src.dataset import CHAR_2_LABEL, convert_label_to_string, ctc_collate_fn
 from src.metrics import char_error_rate, levenshtein_distance, word_accuracy
 from src.model import RCNN
-from src.train import compute_ctc_loss, decode_predictions, normalize_batch_loss, train
+from src.train import (
+    compute_ctc_loss,
+    decode_predictions,
+    normalize_batch_loss,
+    save_validation_predictions,
+    train,
+)
 
 
 def test_original_class_indices() -> None:
@@ -53,6 +63,28 @@ def test_sum_ctc_loss_is_normalized_by_actual_batch_size() -> None:
     normalized.backward()
     assert float(normalized.detach()) == 2.0
     assert float(parameter.grad) == 1.0
+
+
+def test_validation_predictions_are_logged_as_compressed_jsonl(tmp_path: Path) -> None:
+    destination = save_validation_predictions(
+        tmp_path,
+        1000,
+        ["cat", "bog"],
+        ["cat", "book"],
+        ["cat.jpg", "book.jpg"],
+        validation_loss=1.25,
+        validation_cer=0.2,
+        validation_word_accuracy=0.5,
+    )
+    with gzip.open(destination, "rt", encoding="utf-8") as stream:
+        records = [json.loads(line) for line in stream]
+
+    assert records[0]["record_type"] == "summary"
+    assert records[0]["sample_count"] == 2
+    assert records[1]["correct"] is True
+    assert records[2]["prediction"] == "bog"
+    assert records[2]["target"] == "book"
+    assert records[2]["edit_distance"] == 2
 
 
 def test_model_output_shape_and_gradients() -> None:
