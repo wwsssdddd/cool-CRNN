@@ -1,0 +1,18 @@
+{
+  "file": "crnn_mjsynth_epoch5_iter0560000.pt",
+  "format": "pytorch_state_dict",
+  "architecture": "CRNN CNN-BiLSTM-CTC",
+  "dataset": "MJSynth validation protocol",
+  "iteration": 560000,
+  "batch_size": 64,
+  "train_samples": 7224606,
+  "equivalent_epochs": 4.960824161206854,
+  "validation_samples": 5000,
+  "validation_loss": 0.7453824401855469,
+  "validation_cer": 0.024948885210787655,
+  "validation_word_accuracy": 0.9168,
+  "original_repository": "https://github.com/bgshih/crnn",
+  "original_commit": "f5d41e3355fc4447f77cd6d5e5777b3a160c93cb",
+  "sha256": "e7e133ef7b02a6af67dc54068153dcc8ec213f0baaa4b23f3588885725dfaeb3",
+  "notes": "Weights-only checkpoint from the end of the fifth equivalent epoch; load with src.checkpoint.load_model."
+}

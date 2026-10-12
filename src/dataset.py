@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Sequence
+import warnings
 
 import cv2
 import numpy as np
@@ -23,8 +24,10 @@ from .config import (
     TEST_SIZE,
 )
 
-CHAR_2_LABEL = {char: idx for idx, char in enumerate(CHARS)}
-LABEL_2_CHAR = {idx: char for idx, char in enumerate(CHARS)}
+# Индексация совпадает с utilities.lua оригинального bgshih/crnn:
+# 0 = CTC blank, 1..10 = цифры, 11..36 = латинские буквы.
+CHAR_2_LABEL = {char: idx + 1 for idx, char in enumerate(CHARS)}
+LABEL_2_CHAR = {idx + 1: char for idx, char in enumerate(CHARS)}
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
@@ -77,10 +80,11 @@ def read_image(
         minimum_width,
         round(source_width * IMAGE_HEIGHT / source_height),
     )
-    interpolation = cv2.INTER_AREA if resized_width < source_width else cv2.INTER_CUBIC
-    image = cv2.resize(image, (resized_width, IMAGE_HEIGHT), interpolation=interpolation)
-    # Нормализация как в распространённых реализациях CRNN: [0, 255] -> [-1, 1].
-    image = image.astype(np.float32) / 127.5 - 1.0
+    # Torch image.scale из оригинала использует билинейное масштабирование.
+    image = cv2.resize(image, (resized_width, IMAGE_HEIGHT), interpolation=cv2.INTER_LINEAR)
+    # Точное преобразование первых слоёв оригинальной модели:
+    # nn.AddConstant(-128.0), затем nn.MulConstant(1.0 / 128).
+    image = (image.astype(np.float32) - 128.0) / 128.0
     return torch.from_numpy(image).unsqueeze(0)
 
 
@@ -188,6 +192,7 @@ class CaptchaDataset(Dataset):
             self.test_labels = []
         self.fixed_width = fixed_width
         self.state = "train"
+        self._reported_unreadable_paths: set[Path] = set()
 
     def set_state(self, state: str) -> None:
         if state not in {"train", "test"}:
@@ -213,18 +218,42 @@ class CaptchaDataset(Dataset):
         return len(self.paths)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.LongTensor]:
-        label = self.labels[idx]
-        # Для T ≈ W/4 + 1 ширина 4*required_steps гарантирует допустимое
-        # CTC-выравнивание даже для слов с повторяющимися буквами.
-        minimum_width = max(MIN_IMAGE_WIDTH, 4 * ctc_required_steps(label))
-        if self.fixed_width is not None:
-            available_steps = self.fixed_width // 4 + 1
-            if ctc_required_steps(label) > available_steps:
-                raise ValueError(
-                    f"Слово {label!r} требует {ctc_required_steps(label)} CTC-шагов, "
-                    f"но fixed width {self.fixed_width} даёт только {available_steps}"
-                )
-        return (
-            read_image(self.paths[idx], minimum_width, self.fixed_width),
-            self._label_2_longtensor(label),
+        paths = self.paths
+        labels = self.labels
+        if not -len(paths) <= idx < len(paths):
+            raise IndexError(idx)
+        idx %= len(paths)
+
+        # Редкие повреждённые JPEG в больших наборах не должны обрывать
+        # многосуточную эпоху. Такой объект заменяется ближайшим читаемым.
+        max_attempts = min(len(paths), 1000)
+        for offset in range(max_attempts):
+            candidate = (idx + offset) % len(paths)
+            label = labels[candidate]
+            # Для T ≈ W/4 + 1 ширина 4*required_steps гарантирует допустимое
+            # CTC-выравнивание даже для слов с повторяющимися буквами.
+            minimum_width = max(MIN_IMAGE_WIDTH, 4 * ctc_required_steps(label))
+            if self.fixed_width is not None:
+                available_steps = self.fixed_width // 4 + 1
+                if ctc_required_steps(label) > available_steps:
+                    raise ValueError(
+                        f"Слово {label!r} требует {ctc_required_steps(label)} CTC-шагов, "
+                        f"но fixed width {self.fixed_width} даёт только {available_steps}"
+                    )
+            path = paths[candidate]
+            try:
+                image = read_image(path, minimum_width, self.fixed_width)
+            except ValueError:
+                if path not in self._reported_unreadable_paths:
+                    warnings.warn(
+                        f"Нечитаемое изображение пропущено: {path}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    self._reported_unreadable_paths.add(path)
+                continue
+            return image, self._label_2_longtensor(label)
+
+        raise RuntimeError(
+            f"Не найдено читаемое изображение за {max_attempts} последовательных попыток"
         )

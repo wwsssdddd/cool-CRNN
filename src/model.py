@@ -10,12 +10,27 @@ from .config import NUM_CLASSES
 
 
 class BidirectionalLSTM(nn.Module):
-    """Один двунаправленный LSTM и проекция его двух направлений."""
+    """Два направления LSTM и их проекции с суммой, как в BiRnnJoin.lua."""
 
     def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
         super().__init__()
         self.rnn = nn.LSTM(input_size, hidden_size, bidirectional=True)
-        self.embedding = nn.Linear(hidden_size * 2, output_size)
+        # В оригинале forward/backward состояния проходят через отдельные
+        # Linear и затем складываются, а не конкатенируются одной проекцией.
+        self.forward_projection = nn.Linear(hidden_size, output_size)
+        self.backward_projection = nn.Linear(hidden_size, output_size)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        """Повторяет reset() LstmLayer.lua и BiRnnJoin.lua."""
+        for name, parameter in self.rnn.named_parameters():
+            if "weight" in name:
+                nn.init.uniform_(parameter, -0.08, 0.08)
+            else:
+                nn.init.zeros_(parameter)
+        for projection in (self.forward_projection, self.backward_projection):
+            nn.init.uniform_(projection.weight, -0.08, 0.08)
+            nn.init.zeros_(projection.bias)
 
     def forward(self, sequence: torch.Tensor, lengths: torch.LongTensor) -> torch.Tensor:
         total_length = sequence.shape[0]
@@ -26,9 +41,8 @@ class BidirectionalLSTM(nn.Module):
         )
         packed_output, _ = self.rnn(packed)
         recurrent, _ = pad_packed_sequence(packed_output, total_length=total_length)
-        time_steps, batch_size, features = recurrent.shape
-        projected = self.embedding(recurrent.reshape(time_steps * batch_size, features))
-        return projected.reshape(time_steps, batch_size, -1)
+        forward_state, backward_state = recurrent.chunk(2, dim=2)
+        return self.forward_projection(forward_state) + self.backward_projection(backward_state)
 
 
 class RCNN(nn.Module):
@@ -44,6 +58,7 @@ class RCNN(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
@@ -53,15 +68,14 @@ class RCNN(nn.Module):
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 1), padding=(0, 1)),
             nn.Conv2d(512, 512, kernel_size=2, stride=1, padding=0),
+            nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
         )
         self.rnn_layer_1 = BidirectionalLSTM(512, 256, 256)
         self.rnn_layer_2 = BidirectionalLSTM(256, 256, NUM_CLASSES)
-        self.apply(self._init_weights)
 
     @staticmethod
     def output_lengths(input_widths: torch.LongTensor) -> torch.LongTensor:
@@ -93,17 +107,3 @@ class RCNN(nn.Module):
 
         sequence = self.rnn_layer_1(sequence, sequence_lengths)
         return self.rnn_layer_2(sequence, sequence_lengths)
-
-    @staticmethod
-    def _init_weights(module: nn.Module) -> None:
-        if isinstance(module, nn.Linear):
-            nn.init.xavier_uniform_(module.weight)
-            if module.bias is not None:
-                nn.init.constant_(module.bias, 0.01)
-        elif isinstance(module, nn.Conv2d):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.BatchNorm2d):
-            nn.init.normal_(module.weight, mean=1.0, std=0.02)
-            nn.init.zeros_(module.bias)
