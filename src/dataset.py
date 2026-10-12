@@ -15,13 +15,13 @@ from torch.utils.data import Dataset
 
 from .config import (
     BLANK_IDX,
-    CHARS,
+    CHARS,  # строка всех символов алфавита
     DATA_PATH,
     IMAGE_HEIGHT,
     MANIFEST_PATH,
     MIN_IMAGE_WIDTH,
     RANDOM_STATE,
-    TEST_SIZE,
+    TEST_SIZE,  # доля датасета, которая пойдёт в тестовую (валидационную) часть
 )
 
 # Индексация совпадает с utilities.lua оригинального bgshih/crnn:
@@ -48,7 +48,7 @@ def convert_label_to_string(
     for raw_value in values:
         value = int(raw_value)
         if is_prediction:
-            # В CTC повтор разделяется только blank-символом: a, blank, a -> aa.
+            # В CTC повтор разделяется только blank-символом: {a, blank, a} -> aa.
             if value != previous and value != BLANK_IDX:
                 if value not in LABEL_2_CHAR:
                     raise ValueError(f"Неизвестная метка класса: {value}")
@@ -84,6 +84,7 @@ def read_image(
     image = cv2.resize(image, (resized_width, IMAGE_HEIGHT), interpolation=cv2.INTER_LINEAR)
     # Точное преобразование первых слоёв оригинальной модели:
     # nn.AddConstant(-128.0), затем nn.MulConstant(1.0 / 128).
+    # Итоговая нормализация: [0, 255] -> [-1, 1].
     image = (image.astype(np.float32) - 128.0) / 128.0
     return torch.from_numpy(image).unsqueeze(0)
 
@@ -92,7 +93,8 @@ def read_image(
 class CTCBatch:
     """Батч с padded-изображениями и конкатенированными CTC-таргетами."""
 
-    images: torch.Tensor
+    images: torch.Tensor  # (B, 1, 32, W_max): B картинок, 1 канал, высота 32,
+                          # ширина — максимальная среди всех в батче
     targets: torch.LongTensor
     input_widths: torch.LongTensor
     target_lengths: torch.LongTensor
@@ -121,8 +123,8 @@ class CaptchaDataset(Dataset):
 
     def __init__(
         self,
-        data_path: str | Path | None = None,
-        manifest_path: str | Path | None = None,
+        data_path: str | Path | None = None,  # путь к папке с картинками
+        manifest_path: str | Path | None = None,  # путь к TSV-манифесту (path<TAB>label)
         split: bool = True,
         fixed_width: int | None = None,
     ) -> None:
