@@ -1,0 +1,13 @@
+Стоит читать в таком порядке
+
+config.py — настройки: окружение, дефолты, алфавит, пути, DEVICE.
+dataset.py — данные → CTC-батчи: чтение, нормализация, padding, сплит.
+model.py — CRNN: CNN + два BiLSTM → CTC logits.
+train.py — обучение: loss, эпохи, метрики, чекпоинты, resume.
+pipeline.py — запуск обучения: данные + модель + optimizer + графики.
+checkpoint.py / cli.py — инференс: загрузка весов и распознавание одной картинки.
+metrics.py — CER и word accuracy.
+ctc_probability.py / bktree.py / lexicon.py — lexicon-based decoding: точная CTC-вероятность + BK-tree поиск по словарю.
+benchmark.py — оценка на IIIT5K/SVT/IC03/IC13 в разных режимах.
+analysis.py — визуализация ошибок модели.
+prepare_manifest.py / model_size.py / summarize.py — утилиты: манифесты, размер модели, сводные отчёты.
